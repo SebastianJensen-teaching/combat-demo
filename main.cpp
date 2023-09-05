@@ -1,10 +1,9 @@
 #include "common.h"
-
-#define ENABLE_CHECKS 1 // enables bounds checks and other debug checks
+#include "pathfinding.h"
 
 #define COMBAT_MAP_WIDTH 9
 #define COMBAT_MAP_HEIGHT 9
-#define COMBAT_MAP_OFFSET_X 256
+#define COMBAT_MAP_OFFSET_X 512
 #define COMBAT_MAP_OFFSET_Y 128
 
 #define COMBAT_TILES_NUM (COMBAT_MAP_WIDTH * COMBAT_MAP_HEIGHT)
@@ -212,25 +211,25 @@ struct card_t
 
 card_t g_card_db[] = {
     {.name = "NO_CARD"},
-    {.cost = 1,
+    {.cost = 0,
      .value = 1,
      .unit_class = UNIT_CLASS_ASSEMBLER,
-     .name = "FIRST",
+     .name = "Shadow",
      .description = "ASSEMBLER remains hidden until next activated or discovered"},
-    {.cost = 2,
-     .value = 2,
+    {.cost = 0,
+     .value = 1,
      .unit_class = UNIT_CLASS_WIZARD,
-     .name = "SECOND",
+     .name = "Hack",
      .description = "ASSEMBLER attempts to hack adjacent TERMINAL"},
-    {.cost = 3,
-     .value = 3,
+    {.cost = 0,
+     .value = 1,
      .unit_class = UNIT_CLASS_SLAYER,
-     .name = "THIRD",
+     .name = "Disarm",
      .description = "ASSEMBLER attempts to disarm adjacent TRAP"},
-    {.cost = 4,
-     .value = 4,
+    {.cost = 0,
+     .value = 1,
      .unit_class = UNIT_CLASS_MANOWAR,
-     .name = "FOURTH",
+     .name = "Filch",
      .description = "ASSEMBLER attempts to steal item from adjacent ENEMY"}};
 
 u32 g_cards_deck[COMBAT_DECK_SIZE];
@@ -288,7 +287,7 @@ void ui_text_box(const char *text, rect_t rect, i32 font_size, Color color)
     i32 text_pos = 0;
     for (i32 line = 0; line < num_lines; line++)
     {
-        DrawTextPro(
+        draw_text(
             ui_font,
             TextSubtext(text, text_pos, chara_per_line),
             VECTOR(x_pos, y_pos),
@@ -303,7 +302,7 @@ void ui_command_indicator()
 {
     rect_t src = {96.0f + (combat.command_points * 64.0f), 160, 64, 64};
     rect_t dest = {game_width - 160, 16, 128, 128};
-    DrawTexturePro(g_ui_texture, src, dest, ZERO_VECTOR, 0.0f, WHITE);
+    draw_texture(g_ui_texture, src, dest, ZERO_VECTOR, 0.0f, WHITE);
 }
 
 void ui_discard_pile()
@@ -311,8 +310,10 @@ void ui_discard_pile()
     for (u32 itr = 0; itr < g_cards_discard_num; itr++)
     {
         card_t *card = &g_card_db[g_cards_discard[itr]];
-        DrawTextEx(ui_font, TextFormat("%2d: %s", itr, card->name), VECTOR(GetScreenWidth() - 256, 128 + itr * 24), 16, 0,
-                   itr == g_cards_discard_num ? YELLOW : WHITE);
+        draw_text(ui_font, TextFormat("%2d: %s", itr, card->name),
+                  VECTOR(GetScreenWidth() - 256, 128 + itr * 24),
+                  ZERO_VECTOR, 0.0f, 16, 0,
+                  itr == g_cards_discard_num ? YELLOW : WHITE);
     }
 }
 
@@ -343,16 +344,16 @@ void ui_command_cards()
                 card_color = BLUE;
                 break;
             }
-            DrawTexturePro(g_ui_texture, source, dest, ZERO_VECTOR, 0.0f,
-                           itr == combat.selected_card ? WHITE : itr == combat.mouse_card ? LIGHTGRAY
-                                                                                          : GRAY);
-            DrawTexturePro(g_ui_texture,
-                           (rect_t){source.x, source.y + 128 + 32, source.width, source.height},
-                           dest, ZERO_VECTOR, 0.0f,
-                           itr == combat.selected_card ? card_color : itr == combat.mouse_card ? LIGHTGRAY
-                                                                                               : GRAY);
-            DrawTextPro(ui_font, TextFormat("[%d]%s", g_card_db[card_id].cost, g_card_db[card_id].name),
-                        VECTOR(dest.x + 32, dest.y + 18), ZERO_VECTOR, 0.0f, 22, 0, card_color);
+            draw_texture(g_ui_texture, source, dest, ZERO_VECTOR, 0.0f,
+                         itr == combat.selected_card ? WHITE : itr == combat.mouse_card ? LIGHTGRAY
+                                                                                        : GRAY);
+            draw_texture(g_ui_texture,
+                         (rect_t){source.x, source.y + 128 + 32, source.width, source.height},
+                         dest, ZERO_VECTOR, 0.0f,
+                         itr == combat.selected_card ? card_color : itr == combat.mouse_card ? LIGHTGRAY
+                                                                                             : GRAY);
+            draw_text(ui_font, TextFormat("[%d]%s", g_card_db[card_id].cost, g_card_db[card_id].name),
+                      VECTOR(dest.x + 32, dest.y + 18), ZERO_VECTOR, 0.0f, 22, 0, card_color);
             rect_t description_text_rect = {dest.x + 32, dest.y + 96, 120, 120};
             ui_text_box(g_card_db[card_id].description, description_text_rect, 16, RAYWHITE);
 
@@ -367,7 +368,7 @@ void ui_command_cards()
                     .y = dest.y + 12,
                     .width = 32,
                     .height = 32};
-                DrawTexturePro(g_ui_texture, value_src, value_dest, ZERO_VECTOR, 0.0f, WHITE);
+                draw_texture(g_ui_texture, value_src, value_dest, ZERO_VECTOR, 0.0f, WHITE);
             }
 
             // Todo: Move this whole thing out of the loop, we only need to do it once
@@ -391,13 +392,13 @@ void ui_command_cards()
                         .height = 32};
                     rect_t buttons_dest = {
                         dest.x, dest.y - 64, dest.width, 64};
-                    DrawTexturePro(g_ui_texture, buttons_src, buttons_dest, ZERO_VECTOR, 0.0f, WHITE);
+                    draw_texture(g_ui_texture, buttons_src, buttons_dest, ZERO_VECTOR, 0.0f, WHITE);
                 }
             }
         }
         else
         {
-            DrawRectangleRec(dest, GRAY);
+            draw_rectangle(dest, GRAY);
         }
         dest.x += COMBAT_UI_CARD_WIDTH;
     }
@@ -422,8 +423,8 @@ bool ui_pc_card(i32 id, i32 x, i32 y)
         bg_color = BLUE;
         break;
     }
-    DrawTexturePro(g_ui_texture, (rect_t){320.0f, 0.0f, 128.0f, 64.0f}, (rect_t){(f32)x, (f32)y, 256.0f, 128.0f}, ZERO_VECTOR, 0.0f, LIGHTGRAY);
-    DrawTextPro(ui_font, TextFormat("%s(%2d/%2d)", chara->name, chara->move_points, chara->swift), VECTOR(x + 128.0f, y + 6.0f), ZERO_VECTOR, 0.0f, 24, 0, bg_color);
+    draw_texture(g_ui_texture, (rect_t){320.0f, 0.0f, 128.0f, 64.0f}, (rect_t){(f32)x, (f32)y, 256.0f, 128.0f}, ZERO_VECTOR, 0.0f, LIGHTGRAY);
+    DrawTextPro(ui_font, TextFormat("%s", chara->name), VECTOR(x + 128.0f, y + 6.0f), ZERO_VECTOR, 0.0f, 24, 0, bg_color);
     return false;
 }
 
@@ -448,7 +449,6 @@ void combat_ui_render()
     ui_command_cards();
     ui_discard_pile();
     ui_command_indicator();
-    // DrawTextEx(ui_font, TextFormat("%d", g_combat_state.command_points), VECTOR(GetScreenWidth() - 128, 16), 48, 0, WHITE);
 }
 
 void combat_update()
@@ -705,9 +705,9 @@ void combat_render()
         if (combat.prompt[0] != '\0')
         {
             vector_t text_length = MeasureTextEx(ui_font, combat.prompt, 32, 0);
-            DrawTextEx(ui_font, combat.prompt, VECTOR(game_width / 2 - (text_length.x / 2), 16), 32, 0, RAYWHITE);
+            draw_text(ui_font, combat.prompt, VECTOR(game_width / 2 - (text_length.x / 2), 16), ZERO_VECTOR, 0.0f, 32, 0, RAYWHITE);
             text_length = MeasureTextEx(ui_font, "Press [ESC] or right mouse button to cancel.", 32, 0);
-            DrawTextEx(ui_font, "Press [ESC] or right mouse button to cancel.", VECTOR(game_width / 2 - (text_length.x / 2), 48), 32, 0, LIGHTGRAY);
+            draw_text(ui_font, "Press [ESC] or right mouse button to cancel.", VECTOR(game_width / 2 - (text_length.x / 2), 48), ZERO_VECTOR, 0.0f, 32, 0, LIGHTGRAY);
         }
     }
     break;
@@ -730,7 +730,7 @@ void combat_render()
         ClearBackground(BLACK);
         actors_render(COMBAT_MAP_OFFSET_X, COMBAT_MAP_OFFSET_Y);
         combat_ui_render();
-        DrawRectangleLines(0, 0, GetScreenWidth(), GetScreenHeight(), YELLOW);
+        draw_rectangle_lines(0, 0, GetScreenWidth(), GetScreenHeight(), YELLOW);
         const char *text = TextFormat("Playing %s -- Please pick your target or press [ESC] to cancel.", g_card_db[combat.processing_card].name);
         vector_t text_length = MeasureTextEx(ui_font, text, 32, 0);
         DrawTextEx(ui_font, text, VECTOR((GetScreenWidth() / 2) - (text_length.x / 2), 16), 32, 0, YELLOW);
@@ -752,26 +752,12 @@ void combat_render()
     }
 }
 
-// NOTE (Sebbe):
-// Code has been commented out of main which would allow the game
-// to work in fullscreen as well as windowed mode, regardless of resolution.
-// The code works fine, but using it requires that hitboxes for mouse events
-// also scale accordingly, and fiddling with that now is the wrong focus for
-// the prototype to move forward. The code will be brought back in when we are
-// confident that we know exactly where hitboxes are going to be located.
 int main()
 {
     InitWindow(game_width, game_height, "Combat Prototype");
     ToggleFullscreen();
-    // SetWindowMinSize(game_width / 4, game_height / 4);
     SetTargetFPS(60);
     SetExitKey(KEY_X);
-
-    // f32 game_scale = MIN((float)GetRenderWidth() / game_width, (float)GetRenderHeight() / game_height);
-    // g_virtual_mouse = Vector2Clamp(g_virtual_mouse, VECTOR(0, 0), VECTOR(game_width, game_height));
-
-    // RenderTexture2D canvas = LoadRenderTexture(game_width, game_height);
-    // SetTextureFilter(canvas.texture, TEXTURE_FILTER_POINT);
 
     g_actors[TILE_ID(0, 2)].type = ACTOR_TYPE_PLAYER_UNIT;
     g_actors[TILE_ID(0, 2)].id = 0;
@@ -810,20 +796,8 @@ int main()
 
     while (!WindowShouldClose())
     {
-        /*
-        if (IsKeyPressed(KEY_F))
-        {
-            SetWindowSize(game_width, game_height);
-            ToggleFullscreen();
-        }
-        */
-
-        // game_scale = MIN((float)GetRenderWidth() / game_width, (float)GetRenderHeight() / game_height);
         vector_t screen_mouse = GetMousePosition();
         g_virtual_mouse = screen_mouse;
-        // g_virtual_mouse.x = screen_mouse.x / game_scale;
-        // g_virtual_mouse.y = screen_mouse.y / game_scale;
-        // g_virtual_mouse = Vector2Clamp(g_virtual_mouse, VECTOR(0, 0), VECTOR(game_width, game_height));
 
         switch (g_game_state)
         {
@@ -834,8 +808,7 @@ int main()
         break;
         }
 
-        // BeginTextureMode(canvas);
-        BeginDrawing();
+        begin_drawing();
         switch (g_game_state)
         {
         case GAME_STATE_COMBAT:
@@ -844,30 +817,10 @@ int main()
         }
         break;
         }
-        EndDrawing();
-        // EndTextureMode();
-
-        /*
-        BeginDrawing();
-        {
-            rect_t canvas_src = {
-                .x = 0,
-                .y = 0,
-                .width = (f32)game_width,
-                .height = -(f32)game_height};
-            rect_t canvas_dest = {
-                .x = 0,
-                .y = 0,
-                .width = (f32)GetRenderWidth(),
-                .height = (f32)GetRenderHeight()};
-            DrawTexturePro(canvas.texture, canvas_src, canvas_dest, VECTOR(0, 0), 0.0f, WHITE);
-        }
-        EndDrawing();
-        */
+        end_drawing();
     }
     UnloadTexture(g_ui_texture);
     UnloadFont(ui_font);
-    // UnloadRenderTexture(canvas);
     CloseWindow();
     return 0;
 }

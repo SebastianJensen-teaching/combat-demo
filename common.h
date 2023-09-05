@@ -4,8 +4,6 @@
 #include <cstdio>
 #include <cmath>
 #include <cstring>
-#include "raylib.h"
-#include "raymath.h"
 
 // what c primitive typenames should have been:
 typedef unsigned char u8;
@@ -20,14 +18,10 @@ typedef float f32;
 typedef double f64;
 typedef bool b32;
 
-// typedefing Raylib data types to make it more consistant with my coding style:
-typedef Rectangle rect_t;
-typedef Vector2 vector_t;
-typedef Texture2D texture_t;
-typedef Font font_t;
+#include "parappa_the_wrapper.h" //stupidity sauce
 
-// a macro for the extremely annoying problem that a Raylib vector takes floats
-// but we always use ints:
+// for the extremely annoying problem that a raylib vector
+// takes floats but we often use ints:
 #define VECTOR(x, y) ((vector_t){(f32)x, (f32)y})
 #define ZERO_VECTOR ((vector_t){0, 0})
 
