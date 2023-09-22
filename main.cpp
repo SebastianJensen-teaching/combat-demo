@@ -10,7 +10,7 @@
 #define COMBAT_TILE_WIDTH 64
 #define COMBAT_TILE_HEIGHT 64
 
-#define COMBAT_DECK_SIZE 30
+#define COMBAT_DECK_SIZE 60
 #define COMBAT_HAND_SIZE 10
 
 #define COMBAT_UI_CARD_WIDTH 192
@@ -74,6 +74,7 @@ struct combat_state_t
     combat_state_e state;
     selection_mode_e selection_mode;
     bfs_result movement_overlay;
+    i32 current_turn;
     i32 mouse_tile_x;
     i32 mouse_tile_y;
     i32 mouse_tile_id;
@@ -89,7 +90,8 @@ struct combat_state_t
 };
 
 combat_state_t combat = {
-    .state = COMBAT_STATE_PLAYER_MAIN,
+    .current_turn = 1,
+    .state = COMBAT_STATE_PLAYER_TURN_PRE,
     .selection_mode = SELECTION_MODE_ACTOR,
     .mouse_card = -1,
     .selected_actor = -1,
@@ -102,18 +104,38 @@ enum unit_class
     UNIT_CLASS_ASSEMBLER,
     UNIT_CLASS_SLAYER,
     UNIT_CLASS_MANOWAR,
-    UNIT_CLASS_WIZARD
+    UNIT_CLASS_WIZARD,
+    UNIT_CLASS_COMMANDER
 };
 
-const char *unit_class_strings[] = {
+Color class_colors[] = {
+    (Color){2, 245, 148, 255},  // Assembler
+    (Color){250, 53, 15, 255},  // Slayer
+    (Color){245, 125, 2, 255},  // Manowar
+    (Color){0, 185, 245, 255},  // Wizard
+    (Color){132, 2, 245, 255}}; // Commander
+
+const char *class_strings[] = {
     "ASSEMBLER",
     "SLAYER",
     "MANOWAR",
-    "WIZARD"};
+    "WIZARD",
+    "COMMANDER"};
+
+enum player_character_state : u8
+{
+    PC_STATE_EMPTY,
+    PC_STATE_DEAD,
+    PC_STATE_READY,
+    PC_STATE_ACTIVE,
+    PC_STATE_EXHAUSTED,
+    PC_STATE_REACTIVATED
+};
 
 struct player_character_t
 {
     char name[24];
+    u8 state;
     u8 unit_class;
     u8 brains;
     u8 brawn;
@@ -126,6 +148,7 @@ struct player_character_t
 player_character_t g_player_characters[] = {
     {.name = "Brigand\0",
      .unit_class = UNIT_CLASS_ASSEMBLER,
+     .state = PC_STATE_READY,
      .brains = 4,
      .brawn = 4,
      .swift = 4,
@@ -133,6 +156,7 @@ player_character_t g_player_characters[] = {
      .hit_points = 16},
     {.name = "Gentleman\0",
      .unit_class = UNIT_CLASS_WIZARD,
+     .state = PC_STATE_READY,
      .brains = 4,
      .brawn = 4,
      .swift = 4,
@@ -140,6 +164,7 @@ player_character_t g_player_characters[] = {
      .hit_points = 16},
     {.name = "Mercenary\0",
      .unit_class = UNIT_CLASS_MANOWAR,
+     .state = PC_STATE_READY,
      .brains = 4,
      .brawn = 4,
      .swift = 4,
@@ -147,13 +172,15 @@ player_character_t g_player_characters[] = {
      .hit_points = 16},
     {.name = "Navvie\0",
      .unit_class = UNIT_CLASS_SLAYER,
+     .state = PC_STATE_READY,
      .brains = 4,
      .brawn = 4,
      .swift = 4,
      .guts = 4,
      .hit_points = 16},
     {.name = "Preacher\0",
-     .unit_class = UNIT_CLASS_ASSEMBLER,
+     .unit_class = UNIT_CLASS_COMMANDER,
+     .state = PC_STATE_READY,
      .brains = 4,
      .brawn = 4,
      .swift = 4,
@@ -164,292 +191,24 @@ player_character_t g_player_characters[] = {
 // ACTORS:
 #include "actor.cpp"
 
-enum command_cards
+#include "combat-cards.cpp"
+
+void turn_end()
 {
-    CARD_NO_CARD,
-    CARD_STEALTH,
-    CARD_HACK,
-    CARD_DISARM,
-    CARD_STEAL,
-    CARD_EMBOLDEN,
-    CARD_REINFORCE,
-    CARD_HARDEN,
-    CARD_DEADENED,
-    CARD_BOLSTER,
-    CARD_FRONT_LINE,
-    CARD_ICEOLATE,
-    CARD_SHUTDOWN,
-    CARD_MANIACAL,
-    CARD_NEOLOGIC_SPASM,
-    CARD_RECOVER,
-    CARD_ROW_SPASM,
-    CARD_COLUMN_SPASM,
-    CARD_REST_ASSURED,
-    CARD_SIMPLE_PLAN,
-    CARD_PROPECHY,
-    CARD_CONSPIRACY,
-    CARD_MINDPHASER,
-    CARD_TACTICAL_NEURAL_IMPLANT,
-    CARD_IMMUNITY,
-    CARD_PAINKILLER,
-    CARD_OVERKILL,
-    CARD_UNSTOPPABLE,
-    CARD_PURGE,
-    CARD_CLEANSE,
-    CARD_BARRIER,
-    CARD_NUM_CARDS
-};
-
-struct card_t
-{
-    u8 cost;
-    u8 value;
-    u8 unit_class;
-    const char *name;
-    const char *description;
-};
-
-card_t g_card_db[] = {
-    {.name = "NO_CARD"},
-    {.cost = 0,
-     .value = 1,
-     .unit_class = UNIT_CLASS_ASSEMBLER,
-     .name = "Shadow",
-     .description = "ASSEMBLER remains hidden until next activated or discovered"},
-    {.cost = 0,
-     .value = 1,
-     .unit_class = UNIT_CLASS_WIZARD,
-     .name = "Hack",
-     .description = "ASSEMBLER attempts to hack adjacent TERMINAL"},
-    {.cost = 0,
-     .value = 1,
-     .unit_class = UNIT_CLASS_SLAYER,
-     .name = "Disarm",
-     .description = "ASSEMBLER attempts to disarm adjacent TRAP"},
-    {.cost = 0,
-     .value = 1,
-     .unit_class = UNIT_CLASS_MANOWAR,
-     .name = "Filch",
-     .description = "ASSEMBLER attempts to steal item from adjacent ENEMY"}};
-
-u32 g_cards_deck[COMBAT_DECK_SIZE];
-u32 g_cards_discard[COMBAT_DECK_SIZE];
-u32 g_cards_discard_num;
-i32 g_recent_discard_came_from;
-i32 g_cards_hand[COMBAT_HAND_SIZE];
-
-void hand_discard(i32 card)
-{
-    g_recent_discard_came_from = card;
-    if (g_cards_discard_num < COMBAT_DECK_SIZE)
+    for (int itr = 0; itr < COMBAT_HAND_SIZE; itr++)
     {
-        g_cards_discard[g_cards_discard_num] = g_cards_hand[card];
-        g_cards_discard_num++;
-    }
-    g_cards_hand[card] = 0;
-}
-
-//@NOTE: ONLY returns the card to hand, not reimbursing the player for any lost
-// cost or return points gained from card etc.
-void undo_most_recent_discard()
-{
-    g_cards_discard_num--;
-    g_cards_hand[g_recent_discard_came_from] = g_cards_discard[g_cards_discard_num];
-    g_cards_discard[g_cards_discard_num] = 0;
-}
-
-// @TODO: Word wrap! There must be really good known solutions to that ...
-// @TODO: For card descriptions we want to use an escape code system that allows us to insert icons
-// We also want to be able to highlight key words using basic markdown?
-// @QUESTION: At what point is it better to just use a texture for this?
-// PRO: It can be anything we want for each card, it's a lot faster to draw a texture than do all of this
-// PRO2: No need to save the NAME and DESCRIPTION strings as game data ... we just have them baked in texture
-//      Actually we might need it anyway, for other ways of viewing the cards, like list?
-// DOWNSIDE: When we want to modify a card, we have to change the data here and in the texture file ...
-//      (unless we actually only have them in the texture file ...)
-// DOWNSIDE2: If we go the texture route, we can not as easily animate the card text.
-// My current thinking is that we stick to this in a phase where the cards may still change A LOT
-// if we later decide that we for sure have not text effect and the card texts are more locked in, maybe we can
-// move to textures then.
-void ui_text_box(const char *text, rect_t rect, i32 font_size, Color color)
-{
-    i32 text_width = MeasureText(text, font_size);
-    i32 num_lines = 1;
-    if (text_width > rect.width)
-    {
-        num_lines = (i32)(ceilf(text_width / rect.width));
-    }
-    i32 chara_width = MeasureText("m", font_size);
-    i32 chara_per_line = (i32)(ceilf(rect.width / chara_width));
-    i32 line_height = font_size * 1.2f;
-    i32 x_pos = rect.x;
-    i32 y_pos = rect.y;
-    i32 text_pos = 0;
-    for (i32 line = 0; line < num_lines; line++)
-    {
-        draw_text(
-            ui_font,
-            TextSubtext(text, text_pos, chara_per_line),
-            VECTOR(x_pos, y_pos),
-            VECTOR(0, 0),
-            0.0f, font_size, 0, color);
-        text_pos += chara_per_line;
-        y_pos += line_height;
-    }
-}
-
-void ui_command_indicator()
-{
-    rect_t src = {96.0f + (combat.command_points * 64.0f), 160, 64, 64};
-    rect_t dest = {game_width - 160, 16, 128, 128};
-    draw_texture(g_ui_texture, src, dest, ZERO_VECTOR, 0.0f, WHITE);
-}
-
-void ui_discard_pile()
-{
-    for (u32 itr = 0; itr < g_cards_discard_num; itr++)
-    {
-        card_t *card = &g_card_db[g_cards_discard[itr]];
-        draw_text(ui_font, TextFormat("%2d: %s", itr, card->name),
-                  VECTOR(GetScreenWidth() - 256, 128 + itr * 24),
-                  ZERO_VECTOR, 0.0f, 16, 0,
-                  itr == g_cards_discard_num ? YELLOW : WHITE);
-    }
-}
-
-void ui_command_cards()
-{
-
-    rect_t source = {0, 0, 96, 128};
-    rect_t dest = {(f32)COMBAT_UI_CARD_OFFSET_X, (f32)COMBAT_UI_CARD_OFFSET_Y, COMBAT_UI_CARD_WIDTH, COMBAT_UI_CARD_HEIGHT};
-
-    for (int itr = 0; itr < 10; itr++)
-    {
-        if (g_cards_hand[itr] != 0)
+        if (g_cards_hand[itr])
         {
-            i32 card_id = g_cards_hand[itr];
-            Color card_color = {255, 255, 255, 255};
-            switch (g_card_db[card_id].unit_class)
-            {
-            case UNIT_CLASS_ASSEMBLER:
-                card_color = DARKGREEN;
-                break;
-            case UNIT_CLASS_MANOWAR:
-                card_color = MAROON;
-                break;
-            case UNIT_CLASS_SLAYER:
-                card_color = ORANGE;
-                break;
-            case UNIT_CLASS_WIZARD:
-                card_color = BLUE;
-                break;
-            }
-            draw_texture(g_ui_texture, source, dest, ZERO_VECTOR, 0.0f,
-                         itr == combat.selected_card ? WHITE : itr == combat.mouse_card ? LIGHTGRAY
-                                                                                        : GRAY);
-            draw_texture(g_ui_texture,
-                         (rect_t){source.x, source.y + 128 + 32, source.width, source.height},
-                         dest, ZERO_VECTOR, 0.0f,
-                         itr == combat.selected_card ? card_color : itr == combat.mouse_card ? LIGHTGRAY
-                                                                                             : GRAY);
-            draw_text(ui_font, TextFormat("[%d]%s", g_card_db[card_id].cost, g_card_db[card_id].name),
-                      VECTOR(dest.x + 32, dest.y + 18), ZERO_VECTOR, 0.0f, 22, 0, card_color);
-            rect_t description_text_rect = {dest.x + 32, dest.y + 96, 120, 120};
-            ui_text_box(g_card_db[card_id].description, description_text_rect, 16, RAYWHITE);
-
-            {
-                rect_t value_src = {
-                    .x = 96 + g_card_db[card_id].value * 64.0f,
-                    .y = 160,
-                    .width = 64,
-                    .height = 64};
-                rect_t value_dest = {
-                    .x = dest.x + 148,
-                    .y = dest.y + 12,
-                    .width = 32,
-                    .height = 32};
-                draw_texture(g_ui_texture, value_src, value_dest, ZERO_VECTOR, 0.0f, WHITE);
-            }
-
-            // Todo: Move this whole thing out of the loop, we only need to do it once
-            // CARD ACTION BUTTONS
-            {
-                if (combat.selected_card == itr)
-                {
-                    combat.button_timer += GetFrameTime();
-                    if (combat.button_timer > 0.05f)
-                    {
-                        if (combat.button_frame < 3)
-                        {
-                            combat.button_frame++;
-                        }
-                        combat.button_timer = 0.0f;
-                    }
-                    rect_t buttons_src = {
-                        .x = 97,
-                        .y = combat.button_frame * 32.0f,
-                        .width = 96,
-                        .height = 32};
-                    rect_t buttons_dest = {
-                        dest.x, dest.y - 64, dest.width, 64};
-                    draw_texture(g_ui_texture, buttons_src, buttons_dest, ZERO_VECTOR, 0.0f, WHITE);
-                }
-            }
+            combat.command_points += g_card_db[g_cards_hand[itr]].value;
+            card_discard(itr);
         }
-        else
-        {
-            draw_rectangle(dest, GRAY);
-        }
-        dest.x += COMBAT_UI_CARD_WIDTH;
     }
+    if (combat.command_points > 12)
+        combat.command_points = 12;
+    combat.state = COMBAT_STATE_ENEMY_TURN;
 }
 
-bool ui_pc_card(i32 id, i32 x, i32 y)
-{
-    player_character_t *chara = &g_player_characters[id];
-    Color bg_color = {255, 255, 255, 255};
-    switch (chara->unit_class)
-    {
-    case UNIT_CLASS_ASSEMBLER:
-        bg_color = DARKGREEN;
-        break;
-    case UNIT_CLASS_MANOWAR:
-        bg_color = MAROON;
-        break;
-    case UNIT_CLASS_SLAYER:
-        bg_color = ORANGE;
-        break;
-    case UNIT_CLASS_WIZARD:
-        bg_color = BLUE;
-        break;
-    }
-    draw_texture(g_ui_texture, (rect_t){320.0f, 0.0f, 128.0f, 64.0f}, (rect_t){(f32)x, (f32)y, 256.0f, 128.0f}, ZERO_VECTOR, 0.0f, LIGHTGRAY);
-    DrawTextPro(ui_font, TextFormat("%s", chara->name), VECTOR(x + 128.0f, y + 6.0f), ZERO_VECTOR, 0.0f, 24, 0, bg_color);
-    return false;
-}
-
-i32 ui_pc_cards(i32 x, i32 y)
-{
-    static i32 card_height = 128;
-    static i32 selected = -1;
-    for (int i = 0; i < sizeof(g_player_characters) / sizeof(player_character_t); i++)
-    {
-        if (ui_pc_card(i, x, y))
-        {
-            selected = i;
-        }
-        y += card_height + 8;
-    }
-    return selected;
-}
-
-void combat_ui_render()
-{
-    ui_pc_cards(0, 88);
-    ui_command_cards();
-    ui_discard_pile();
-    ui_command_indicator();
-}
+#include "combat-ui.cpp"
 
 void combat_update()
 {
@@ -466,7 +225,41 @@ void combat_update()
     case COMBAT_STATE_PRE:
         break;
     case COMBAT_STATE_PLAYER_TURN_PRE:
-        break;
+    {
+        // Refresh all player characters and draw cards:
+        i32 cards_drawn = 0;
+        for (int itr = 0;
+             itr < sizeof(g_player_characters) / sizeof(player_character_t);
+             itr++)
+        {
+            if (g_player_characters[itr].state > PC_STATE_DEAD)
+            {
+                g_player_characters[itr].state = PC_STATE_READY;
+                if (!card_draw())
+                {
+                    // defeat();
+                } // if we cannot draw a card then we have lost
+                cards_drawn++;
+            }
+        }
+        if (!cards_drawn)
+        {
+            // if we have no cards at this point then we have lost (everyone is dead)
+            // defeat();
+        }
+        // @TODO: Here we should draw extra cards from player bonueses
+
+        // Reset UI:
+        {
+            combat.mouse_card = -1;
+            combat.selected_actor = -1;
+            combat.selected_card = -1;
+        }
+
+        // Auto move to player main state:
+        combat.state = COMBAT_STATE_PLAYER_MAIN;
+    }
+    break;
     case COMBAT_STATE_PLAYER_MAIN:
     {
         // Is the mouse in the card area?
@@ -510,11 +303,11 @@ void combat_update()
             {
                 if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) //"act" button pressed
                 {
-                    hand_discard(combat.selected_card);
+                    card_discard(combat.selected_card);
                     combat.selected_card = -1;
                     combat.state = COMBAT_STATE_PLAYER_SELECTION;
                     strcpy(combat.prompt, TextFormat("Who to activate? Exhausted %s can be reactivated. \0",
-                                                     unit_class_strings[card->unit_class]));
+                                                     class_strings[card->unit_class]));
                 }
             }
             if (CheckCollisionPointRec(g_virtual_mouse, use_rec)) // mouse over "use" button
@@ -526,7 +319,7 @@ void combat_update()
                         combat.command_points -= card->cost;                         // pay the card cost
                         combat.processing_card = g_cards_hand[combat.selected_card]; // remember the card we played
                         combat.state = COMBAT_STATE_PLAYER_PROCESS_CARD;             // and enter the card process state next frame
-                        hand_discard(combat.selected_card);                          // discard selected card
+                        card_discard(combat.selected_card);                          // discard selected card
                         combat.selected_card = -1;                                   // deselect selected card
                     }
                 }
@@ -547,7 +340,7 @@ void combat_update()
                         {
                             combat.command_points = 12;
                         }
-                        hand_discard(combat.selected_card); // discard selected card
+                        card_discard(combat.selected_card); // discard selected card
                         combat.selected_card = -1;          // deselect selected card
                     }
                 }
@@ -586,7 +379,10 @@ void combat_update()
                     {
                         combat.selected_actor_tile = combat.mouse_tile_id;
                         combat.selected_actor = g_actors[combat.selected_actor_tile].id;
-                        combat.state = COMBAT_STATE_PLAYER_CONFIRM_SELECTION;
+                        if (g_player_characters[combat.selected_actor].state == PC_STATE_READY)
+                        {
+                            combat.state = COMBAT_STATE_PLAYER_CONFIRM_SELECTION;
+                        }
                     }
                 }
             }
@@ -627,6 +423,7 @@ void combat_update()
             g_player_characters[combat.selected_actor].move_points =
                 g_player_characters[combat.selected_actor].swift;
 
+            g_player_characters[combat.selected_actor].state = PC_STATE_ACTIVE;
             combat.state = COMBAT_STATE_PLAYER_ACTOR_ACTIVE;
         }
     }
@@ -667,6 +464,7 @@ void combat_update()
 
                         if (g_player_characters[combat.selected_actor].move_points <= 0)
                         {
+                            g_player_characters[combat.selected_actor].state = PC_STATE_EXHAUSTED;
                             combat.selected_actor = -1;
                             combat.selected_actor_tile = -1;
                             combat.state = COMBAT_STATE_PLAYER_MAIN;
@@ -681,6 +479,8 @@ void combat_update()
     case COMBAT_STATE_ENEMY_TURN_PRE:
         break;
     case COMBAT_STATE_ENEMY_TURN:
+        combat.current_turn++;
+        combat.state = COMBAT_STATE_PLAYER_TURN_PRE;
         break;
     case COMBAT_STATE_POST:
         break;
@@ -752,13 +552,16 @@ void combat_render()
     }
 }
 
-int main()
+void combat_load_resources()
 {
-    InitWindow(game_width, game_height, "Combat Prototype");
-    ToggleFullscreen();
-    SetTargetFPS(60);
-    SetExitKey(KEY_X);
+    g_ui_texture = LoadTexture("./assets/ui.png");
+    SetTextureFilter(g_ui_texture, TEXTURE_FILTER_POINT);
 
+    ui_font = LoadFont("./assets/FiraCode-Regular.ttf");
+}
+
+void combat_setup_battlefield()
+{
     g_actors[TILE_ID(0, 2)].type = ACTOR_TYPE_PLAYER_UNIT;
     g_actors[TILE_ID(0, 2)].id = 0;
     g_actors[TILE_ID(0, 3)].type = ACTOR_TYPE_PLAYER_UNIT;
@@ -771,28 +574,30 @@ int main()
     g_actors[TILE_ID(0, 6)].id = 4;
 
     g_actors[TILE_ID(8, 1)].type = ACTOR_TYPE_ENEMY_UNIT;
+    g_actors[TILE_ID(8, 1)].id = 0;
     g_actors[TILE_ID(7, 2)].type = ACTOR_TYPE_ENEMY_UNIT;
+    g_actors[TILE_ID(7, 2)].id = 1;
     g_actors[TILE_ID(8, 3)].type = ACTOR_TYPE_ENEMY_UNIT;
+    g_actors[TILE_ID(8, 3)].id = 2;
     g_actors[TILE_ID(7, 4)].type = ACTOR_TYPE_ENEMY_UNIT;
+    g_actors[TILE_ID(7, 4)].id = 3;
     g_actors[TILE_ID(8, 5)].type = ACTOR_TYPE_ENEMY_UNIT;
+    g_actors[TILE_ID(8, 5)].id = 4;
     g_actors[TILE_ID(7, 6)].type = ACTOR_TYPE_ENEMY_UNIT;
+    g_actors[TILE_ID(7, 6)].id = 5;
     g_actors[TILE_ID(8, 7)].type = ACTOR_TYPE_ENEMY_UNIT;
+    g_actors[TILE_ID(8, 7)].id = 6;
+}
 
-    g_cards_hand[0] = 1;
-    g_cards_hand[1] = 2;
-    g_cards_hand[2] = 3;
-    g_cards_hand[3] = 4;
-    g_cards_hand[4] = 1;
-    g_cards_hand[5] = 2;
-    g_cards_hand[6] = 3;
-    g_cards_hand[7] = 4;
-    g_cards_hand[8] = 4;
-    g_cards_hand[9] = 4;
+int main()
+{
+    init_window(game_width, game_height);
 
-    g_ui_texture = LoadTexture("./assets/ui.png");
-    SetTextureFilter(g_ui_texture, TEXTURE_FILTER_POINT);
+    combat_load_resources();
+    combat_setup_battlefield();
 
-    ui_font = LoadFont("./assets/FiraCode-Regular.ttf");
+    set_random_seed((u32)time(NULL));
+    fill_deck_with_random_cards();
 
     while (!WindowShouldClose())
     {

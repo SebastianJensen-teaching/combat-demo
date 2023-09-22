@@ -13,16 +13,16 @@
             - [ ] BFS for variable dimension maps
         - [ ] Path generation
         - [ ] Path following
-    - [ ] Character attacks
+    - [ ] Melee attacks
+    - [ ] Ranged attacks
+    - [ ] Prematurely end character activation phase
 - [ ] Card use effects
-- [ ] Victory defeat conditions
+- [ ] Victory + defeat conditions
 
 # UI:
-- [ ] End turn button
-    - [ ] Command points left state
-    - [ ] Cards left state
-    - [ ] End turn state
-- [ ] Flexbox-like behaviour for the card hand (changes how selected_card works)
+- [X] End turn button
+    - [ ] Disable end turn button in most phases
+- [ ] Flexbox-like behaviour and centering for the card hand (changes how selected_card works)
 - [ ] Card hand slide up or genie effect ???
 - [ ] Toggle buttons for command deck list and discard pile list
 - [ ] Command deck list UI

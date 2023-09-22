@@ -20,6 +20,9 @@ typedef Font font_t;
 void init_window(int width, int height)
 {
     InitWindow(width, height, "Sphere City 7 Combat Demo");
+    ToggleFullscreen();
+    SetTargetFPS(60);
+    SetExitKey(KEY_X);
 }
 
 bool window_should_close()
@@ -81,9 +84,19 @@ void draw_rectangle_lines(int x, int y, int w, int h, color_t color)
 
 void draw_text(font_t font, const char *text, vector_t pos,
                vector_t origin = (vector_t){0.0f, 0.0f}, float rotation = 0.0f,
-               int font_size = 16, int spacing = 16, color_t tint = WHITE)
+               int font_size = 16, int spacing = 0, color_t tint = WHITE)
 {
     DrawTextPro(font, text, pos, origin, rotation, font_size, spacing, tint);
+}
+
+void set_random_seed(u32 seed)
+{
+    SetRandomSeed(seed);
+}
+
+i32 get_random_int(i32 min, i32 max)
+{
+    return GetRandomValue(min, max);
 }
 
 #endif

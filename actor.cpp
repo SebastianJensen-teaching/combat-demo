@@ -97,26 +97,27 @@ void actors_render(i32 offset_x, i32 offset_y)
             case ACTOR_TYPE_PLAYER_UNIT:
             {
                 player_character_t *chara = &g_player_characters[current_actor->id];
-                Color pc_color = {255, 255, 255, 255};
-                switch (chara->unit_class)
+
+                Color pc_color = class_colors[chara->unit_class];
+
+                // Calibrate color brightness crudely based on state:
                 {
-                case UNIT_CLASS_ASSEMBLER:
-                    pc_color = DARKGREEN;
-                    break;
-                case UNIT_CLASS_MANOWAR:
-                    pc_color = MAROON;
-                    break;
-                case UNIT_CLASS_SLAYER:
-                    pc_color = ORANGE;
-                    break;
-                case UNIT_CLASS_WIZARD:
-                    pc_color = BLUE;
-                    break;
+                    static float brightness[] = {
+                        0.0f,  // empty
+                        0.0f,  // dead
+                        0.75f, // ready
+                        1.0f,  // active
+                        0.30f, // exhausted
+                        1.0f   // reactivated
+                    };
+                    pc_color.r *= brightness[chara->state];
+                    pc_color.g *= brightness[chara->state];
+                    pc_color.b *= brightness[chara->state];
                 }
                 i32 center_x = (x * COMBAT_TILE_WIDTH) + (COMBAT_TILE_WIDTH / 2) + offset_x;
                 i32 center_y = (y * COMBAT_TILE_HEIGHT) + (COMBAT_TILE_HEIGHT / 2) + offset_y;
                 DrawCircle(center_x, center_y, COMBAT_TILE_WIDTH * 0.40f,
-                           current_actor->id == combat.selected_actor ? WHITE : pc_color);
+                           pc_color);
                 DrawText(TextFormat("%02d", current_actor->id), center_x - 8, center_y - 8, 18, RAYWHITE);
             }
             break;

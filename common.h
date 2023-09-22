@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cmath>
 #include <cstring>
+#include <ctime>
 
 // what c primitive typenames should have been:
 typedef unsigned char u8;
