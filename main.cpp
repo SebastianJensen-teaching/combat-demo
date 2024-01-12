@@ -40,12 +40,27 @@ game_state_e g_game_state = GAME_STATE_COMBAT;
 
 // COMBAT STATE:
 
+enum selection_type
+{
+    TARGET_NO_TARGET,
+    TARGET_ASSEMBLER,
+    TARGET_WIZARD,
+    TARGET_SLAYER,
+    TARGET_ADJ_UNOCCUPIED,
+    TARGET_ADJ_CHARACTER,
+    TARGET_ADJ_ENEMY,
+    TARGET_ADJ_TERMINAL,
+    TARGET_ADJ_TRAP,
+    TARGET_NUM_TARGETS
+};
+
 enum combat_state_e
 {
     COMBAT_STATE_PRE,
     COMBAT_STATE_PLAYER_TURN_PRE,
     COMBAT_STATE_PLAYER_MAIN,
-    COMBAT_STATE_PLAYER_PROCESS_CARD,
+    COMBAT_STATE_CARD_PROCESS,
+    COMBAT_STATE_CARD_EXECUTE,
     COMBAT_STATE_PLAYER_SELECTION,
     COMBAT_STATE_PLAYER_CONFIRM_SELECTION,
     COMBAT_STATE_PLAYER_ACTOR_ACTIVE,
@@ -57,8 +72,8 @@ enum combat_state_e
 enum selection_mode_e
 {
     SELECTION_MODE_NO_SELECTION = 0,
-    SELECTION_MODE_CARD = 1 << 0,
-    SELECTION_MODE_ACTOR = 1 << 1,
+    SELECTION_MODE_CARD = 1,
+    SELECTION_MODE_ACTOR = 2,
     SELECTION_MODE_NPC = 4,
     SELECTION_MODE_TILE = 8
 };
@@ -86,6 +101,8 @@ struct combat_state_t
     f32 button_timer;
     u32 command_points;
     i32 processing_card;
+    i32 processing_step;
+    u8 processing_data[TARGET_NUM_TARGETS];
     char prompt[64];
 };
 
@@ -132,9 +149,27 @@ enum player_character_state : u8
     PC_STATE_REACTIVATED
 };
 
+enum player_character_actions : u8
+{
+    PC_NO_ACTION,
+    PC_MELEE_ATTACK,
+    PC_RANGED_ATTACK,
+    PC_USE_DISPOSABLE,
+    PC_RALLY,
+    PC_NUM_ACTIONS
+};
+
+const char *pc_action_strings[] = {
+    NULL,
+    "MELEE ATTACK",
+    "RANGED ATTACK",
+    "USE ITEM",
+    "RALLY"};
+
 struct player_character_t
 {
     char name[24];
+    u8 actions[9];
     u8 state;
     u8 unit_class;
     u8 brains;
@@ -147,6 +182,11 @@ struct player_character_t
 
 player_character_t g_player_characters[] = {
     {.name = "Brigand\0",
+     .actions = {
+         PC_MELEE_ATTACK,
+         PC_RANGED_ATTACK,
+         PC_USE_DISPOSABLE,
+     },
      .unit_class = UNIT_CLASS_ASSEMBLER,
      .state = PC_STATE_READY,
      .brains = 4,
@@ -154,7 +194,11 @@ player_character_t g_player_characters[] = {
      .swift = 4,
      .guts = 4,
      .hit_points = 16},
-    {.name = "Gentleman\0",
+    {.name = "Gentleman\0", .actions = {
+                                PC_MELEE_ATTACK,
+                                PC_RANGED_ATTACK,
+                                PC_USE_DISPOSABLE,
+                            },
      .unit_class = UNIT_CLASS_WIZARD,
      .state = PC_STATE_READY,
      .brains = 4,
@@ -162,7 +206,11 @@ player_character_t g_player_characters[] = {
      .swift = 4,
      .guts = 4,
      .hit_points = 16},
-    {.name = "Mercenary\0",
+    {.name = "Mercenary\0", .actions = {
+                                PC_MELEE_ATTACK,
+                                PC_RANGED_ATTACK,
+                                PC_USE_DISPOSABLE,
+                            },
      .unit_class = UNIT_CLASS_MANOWAR,
      .state = PC_STATE_READY,
      .brains = 4,
@@ -170,7 +218,11 @@ player_character_t g_player_characters[] = {
      .swift = 4,
      .guts = 4,
      .hit_points = 16},
-    {.name = "Navvie\0",
+    {.name = "Navvie\0", .actions = {
+                             PC_MELEE_ATTACK,
+                             PC_RANGED_ATTACK,
+                             PC_USE_DISPOSABLE,
+                         },
      .unit_class = UNIT_CLASS_SLAYER,
      .state = PC_STATE_READY,
      .brains = 4,
@@ -178,20 +230,22 @@ player_character_t g_player_characters[] = {
      .swift = 4,
      .guts = 4,
      .hit_points = 16},
-    {.name = "Preacher\0",
-     .unit_class = UNIT_CLASS_COMMANDER,
-     .state = PC_STATE_READY,
-     .brains = 4,
-     .brawn = 4,
-     .swift = 4,
-     .guts = 4,
-     .hit_points = 16},
+    {.name = "Preacher\0", .actions = {PC_MELEE_ATTACK, PC_RANGED_ATTACK, PC_USE_DISPOSABLE, PC_RALLY}, .unit_class = UNIT_CLASS_COMMANDER, .state = PC_STATE_READY, .brains = 4, .brawn = 4, .swift = 4, .guts = 4, .hit_points = 16},
 };
 
 // ACTORS:
 #include "actor.cpp"
 
 #include "combat-cards.cpp"
+
+void phase_end()
+{
+    g_player_characters[combat.selected_actor].state = PC_STATE_EXHAUSTED;
+    combat.selected_actor = -1;
+    combat.selected_actor_tile = -1;
+    combat.state = COMBAT_STATE_PLAYER_MAIN;
+    strcpy(combat.prompt, "\0");
+}
 
 void turn_end()
 {
@@ -209,6 +263,31 @@ void turn_end()
 }
 
 #include "combat-ui.cpp"
+
+bool adjacent_tile_clicked(u32 origin)
+{
+    if (combat.mouse_tile_id != -1)
+    {
+        return (
+            origin == combat.mouse_tile_id - 1 ||
+            origin == combat.mouse_tile_id + 1 ||
+            origin == combat.mouse_tile_id - COMBAT_MAP_WIDTH ||
+            origin == combat.mouse_tile_id + COMBAT_MAP_WIDTH);
+    }
+    return false;
+}
+
+bool player_unit_of_type_clicked(u8 unit_class_filter)
+{
+    if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) && combat.mouse_tile_id != -1)
+    {
+        if (g_actors[combat.mouse_tile_id].type == ACTOR_TYPE_PLAYER_UNIT)
+        {
+            return (g_player_characters[g_actors[combat.mouse_tile_id].id].unit_class == unit_class_filter);
+        }
+    }
+    return false;
+}
 
 void combat_update()
 {
@@ -318,9 +397,10 @@ void combat_update()
                     {
                         combat.command_points -= card->cost;                         // pay the card cost
                         combat.processing_card = g_cards_hand[combat.selected_card]; // remember the card we played
-                        combat.state = COMBAT_STATE_PLAYER_PROCESS_CARD;             // and enter the card process state next frame
-                        card_discard(combat.selected_card);                          // discard selected card
-                        combat.selected_card = -1;                                   // deselect selected card
+                        combat.state = COMBAT_STATE_CARD_PROCESS;                    // and enter the card process state next frame
+                        combat.processing_step = 0;
+                        card_discard(combat.selected_card); // discard selected card
+                        combat.selected_card = -1;          // deselect selected card
                     }
                 }
             }
@@ -348,14 +428,129 @@ void combat_update()
         }
     }
     break;
-    case COMBAT_STATE_PLAYER_PROCESS_CARD:
+    case COMBAT_STATE_CARD_PROCESS:
     {
         card_t *card = &g_card_db[combat.processing_card];
+
+        while (!card->selection_sequence[combat.processing_step])
+        {
+            combat.processing_step++;
+        }
+
+        switch (card->selection_sequence[combat.processing_step])
+        {
+        case TARGET_NO_TARGET:
+        {
+            combat.state = COMBAT_STATE_CARD_EXECUTE; // skip to execution
+        }
+        break;
+        case TARGET_ASSEMBLER:
+        {
+            if (player_unit_of_type_clicked(UNIT_CLASS_ASSEMBLER))
+            {
+                combat.processing_data[combat.processing_step] = combat.mouse_tile_id;
+                combat.processing_step++;
+            }
+        }
+        break;
+        case TARGET_WIZARD:
+        {
+            if (player_unit_of_type_clicked(UNIT_CLASS_WIZARD))
+            {
+                combat.processing_data[combat.processing_step] = combat.mouse_tile_id;
+                combat.processing_step++;
+            }
+        }
+        break;
+        case TARGET_SLAYER:
+        {
+            if (player_unit_of_type_clicked(UNIT_CLASS_SLAYER))
+            {
+                combat.processing_data[combat.processing_step] = combat.mouse_tile_id;
+                combat.processing_step++;
+            }
+        }
+        break;
+        case TARGET_ADJ_UNOCCUPIED:
+        {
+            if (adjacent_tile_clicked(combat.processing_data[combat.processing_step - 1]))
+            {
+                if (g_actors[combat.mouse_tile_id].type == ACTOR_NO_ACTOR)
+                {
+                    combat.processing_data[combat.processing_step] = combat.mouse_tile_id;
+                    combat.processing_step++;
+                }
+            }
+        }
+        break;
+        case TARGET_ADJ_CHARACTER:
+        {
+            if (adjacent_tile_clicked(combat.processing_data[combat.processing_step - 1]))
+            {
+                if (g_actors[combat.mouse_tile_id].type == ACTOR_TYPE_PLAYER_UNIT ||
+                    g_actors[combat.mouse_tile_id].type == ACTOR_TYPE_ENEMY_UNIT)
+                {
+                    combat.processing_data[combat.processing_step] = combat.mouse_tile_id;
+                    combat.processing_step++;
+                }
+            }
+        }
+        break;
+        case TARGET_ADJ_ENEMY:
+        {
+            if (adjacent_tile_clicked(combat.processing_data[combat.processing_step - 1]))
+            {
+                if (g_actors[combat.mouse_tile_id].type == ACTOR_TYPE_ENEMY_UNIT)
+                {
+                    combat.processing_data[combat.processing_step] = combat.mouse_tile_id;
+                    combat.processing_step++;
+                }
+            }
+        }
+        break;
+        case TARGET_ADJ_TERMINAL:
+        {
+            if (adjacent_tile_clicked(combat.processing_data[combat.processing_step - 1]))
+            {
+                if (g_actors[combat.mouse_tile_id].type == ACTOR_TYPE_TERMINAL)
+                {
+                    combat.processing_data[combat.processing_step] = combat.mouse_tile_id;
+                    combat.processing_step++;
+                }
+            }
+        }
+        break;
+        case TARGET_ADJ_TRAP:
+        {
+            if (adjacent_tile_clicked(combat.processing_data[combat.processing_step - 1]))
+            {
+                if (g_actors[combat.mouse_tile_id].type == ACTOR_TYPE_TRAP)
+                {
+                    combat.processing_data[combat.processing_step] = combat.mouse_tile_id;
+                    combat.processing_step++;
+                }
+            }
+        }
+        break;
+        }
+
         if (IsKeyPressed(KEY_ESCAPE)) // Undo
         {
-            combat.command_points += card->cost;
-            undo_most_recent_discard();
-            combat.state = COMBAT_STATE_PLAYER_MAIN;
+            if (combat.processing_step > 0)
+            {
+                combat.processing_step--;
+            }
+            else
+            {
+                combat.command_points += card->cost;
+                undo_most_recent_discard();
+                combat.state = COMBAT_STATE_PLAYER_MAIN;
+            }
+        }
+
+        if (combat.processing_step >= TARGET_NUM_TARGETS)
+        {
+            combat.state = COMBAT_STATE_CARD_EXECUTE;
         }
     }
     break;
@@ -379,9 +574,14 @@ void combat_update()
                     {
                         combat.selected_actor_tile = combat.mouse_tile_id;
                         combat.selected_actor = g_actors[combat.selected_actor_tile].id;
-                        if (g_player_characters[combat.selected_actor].state == PC_STATE_READY)
+                        if (g_player_characters[combat.selected_actor].state == PC_STATE_READY ||
+                            g_player_characters[combat.selected_actor].unit_class ==
+                                g_card_db[g_cards_discard[g_cards_discard_num - 1]].unit_class)
                         {
-                            combat.state = COMBAT_STATE_PLAYER_CONFIRM_SELECTION;
+                            if (g_player_characters[combat.selected_actor].unit_class != UNIT_CLASS_COMMANDER)
+                            {
+                                combat.state = COMBAT_STATE_PLAYER_CONFIRM_SELECTION;
+                            }
                         }
                     }
                 }
@@ -436,7 +636,7 @@ void combat_update()
             {
                 if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON))
                 {
-                    if (combat.movement_overlay.costs[combat.mouse_tile_y][combat.mouse_tile_x] >= 0 &&
+                    if (combat.movement_overlay.costs[combat.mouse_tile_y][combat.mouse_tile_x] > 0 &&
                         combat.movement_overlay.costs[combat.mouse_tile_y][combat.mouse_tile_x] <= g_player_characters[combat.selected_actor].move_points)
                     {
                         g_player_characters[combat.selected_actor].move_points -= combat.movement_overlay.costs[combat.mouse_tile_y][combat.mouse_tile_x];
@@ -464,11 +664,7 @@ void combat_update()
 
                         if (g_player_characters[combat.selected_actor].move_points <= 0)
                         {
-                            g_player_characters[combat.selected_actor].state = PC_STATE_EXHAUSTED;
-                            combat.selected_actor = -1;
-                            combat.selected_actor_tile = -1;
-                            combat.state = COMBAT_STATE_PLAYER_MAIN;
-                            strcpy(combat.prompt, "\0");
+                            phase_end();
                         }
                     }
                 }
@@ -525,7 +721,7 @@ void combat_render()
         DrawTextEx(ui_font, "This action can not be undone.", VECTOR(game_width / 2 - (text_length.x / 2), (game_height / 4 + 48)), 32, 0, LIGHTGRAY);
     }
     break;
-    case COMBAT_STATE_PLAYER_PROCESS_CARD:
+    case COMBAT_STATE_CARD_PROCESS:
     {
         ClearBackground(BLACK);
         actors_render(COMBAT_MAP_OFFSET_X, COMBAT_MAP_OFFSET_Y);

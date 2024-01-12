@@ -1,5 +1,16 @@
 #include "common.h"
 
+#define RANGED_ATTACK_ACTION_CARD_X 0
+#define RANGED_ATTACK_ACTION_CARD_Y 288
+#define RANGED_ATTACK_ACTION_CARD_W 128
+#define RANGED_ATTACK_ACTION_CARD_H 128
+#define BURST_TOGGLE_X 128
+#define BURST_TOGGLE_Y 288
+#define BURST_TOGGLE_W 50
+#define BURST_TOGGLE_H 20
+#define BURST_TOGGLE_OFFSET_X 4
+#define BURST_TOGGLE_OFFSET_Y 70
+
 // @TODO: Word wrap! There must be really good known solutions to that ...
 void ui_text_box(const char *text, rect_t rect, i32 font_size, Color color)
 {
@@ -41,8 +52,7 @@ bool ui_end_turn_button()
         }
     }
 
-    const char *endturn_subtext = TextFormat(
-        "Burn %d cards for %d CP", cards_left, total_command_points);
+    const char *endturn_subtext = (combat.state == COMBAT_STATE_PLAYER_ACTOR_ACTIVE) ? "End activation" : TextFormat("Burn %d cards for %d CP", cards_left, total_command_points);
 
     vector_t endturn_text_size = MeasureTextEx(ui_font, "END TURN", 32, 4);
     vector_t endturn_subtext_size = MeasureTextEx(ui_font, endturn_subtext, 16, 0);
@@ -56,7 +66,7 @@ bool ui_end_turn_button()
     b32 mouse_over = CheckCollisionPointRec(g_virtual_mouse, button_rect);
 
     DrawRectangleRec(button_rect, mouse_over ? LIGHTGRAY : DARKGRAY);
-    DrawTextEx(ui_font, "END TURN",
+    DrawTextEx(ui_font, combat.state == COMBAT_STATE_PLAYER_ACTOR_ACTIVE ? "END PHASE" : "END TURN",
                (Vector2){button_rect.x + (button_rect.width / 2) - (endturn_text_size.x / 2),
                          button_rect.y + 8},
                32, 4, mouse_over ? BLACK : WHITE);
@@ -95,7 +105,6 @@ void ui_discard_pile()
 
 void ui_command_cards()
 {
-
     rect_t source = {0, 0, 96, 128};
     rect_t dest = {(f32)COMBAT_UI_CARD_OFFSET_X, (f32)COMBAT_UI_CARD_OFFSET_Y, COMBAT_UI_CARD_WIDTH, COMBAT_UI_CARD_HEIGHT};
 
@@ -204,14 +213,94 @@ i32 ui_pc_cards(i32 x, i32 y)
     return selected;
 }
 
+bool action_button(u8 action, rect_t button)
+{
+    if (action == PC_RANGED_ATTACK)
+    {
+        rect_t target = button;
+        rect_t source = {RANGED_ATTACK_ACTION_CARD_X, RANGED_ATTACK_ACTION_CARD_Y,
+                         RANGED_ATTACK_ACTION_CARD_W, RANGED_ATTACK_ACTION_CARD_H};
+        draw_texture(g_ui_texture, source, target);
+        source.x = BURST_TOGGLE_X;
+        source.y = BURST_TOGGLE_Y;
+        source.width = BURST_TOGGLE_W;
+        source.height = BURST_TOGGLE_H;
+        target.x += BURST_TOGGLE_OFFSET_X * 2;
+        target.y += BURST_TOGGLE_OFFSET_Y * 2;
+        target.width = BURST_TOGGLE_W * 2;
+        target.height = BURST_TOGGLE_H * 2;
+        draw_texture(g_ui_texture, source, target);
+    }
+    else
+    {
+        draw_rectangle(button, GRAY);
+        draw_text(ui_font, pc_action_strings[action], VECTOR(button.x + 8, button.y + 8));
+    }
+    return (CheckCollisionPointRec(g_virtual_mouse, button) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT));
+}
+
+u8 ui_action_bar(i32 x, i32 y)
+{
+    if (combat.selected_actor == -1)
+        return 0;
+
+    static const f32 button_width = 256;
+    static const f32 button_height = 256;
+
+    u8 selected_action = 0;
+    for (int i = 0; i < PC_NUM_ACTIONS; i++)
+    {
+        // selected_actor can actually hold the value of -1
+        // which is how we are currently doing no selection
+        // but it is not a problem because this function only
+        // runs in a game state where an actor is always selected
+        u8 action = g_player_characters[combat.selected_actor].actions[i];
+        if (action)
+        {
+            rect_t button = {(f32)x, (f32)y, button_width, button_height};
+            if (action_button(action, button))
+            {
+                selected_action = i;
+            }
+            x += button_width + 8;
+        }
+    }
+    return selected_action;
+}
+
 void combat_ui_render()
 {
     ui_pc_cards(0, 88);
-    ui_command_cards();
+    if (combat.state == COMBAT_STATE_PLAYER_MAIN)
+    {
+        ui_command_cards();
+    }
+    if (combat.state == COMBAT_STATE_PLAYER_ACTOR_ACTIVE)
+    {
+        u8 action = ui_action_bar(0, 1000);
+        if (action > 0)
+        {
+            // actor_use_action(action - 1);
+        }
+    }
     ui_discard_pile();
     if (ui_end_turn_button())
     {
-        turn_end();
+        switch (combat.state)
+        {
+        case COMBAT_STATE_PLAYER_MAIN:
+        {
+            turn_end();
+        }
+        break;
+        case COMBAT_STATE_PLAYER_ACTOR_ACTIVE:
+        {
+            phase_end();
+        }
+        break;
+        default:
+            break;
+        }
     }
     ui_command_indicator();
     draw_text(ui_font, TextFormat("Turn: %d\tCards remaing: %d", combat.current_turn, g_deck_top),

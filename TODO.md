@@ -4,26 +4,42 @@
 
 # GAMEPLAY:
 - [ ] Activate characters
-    - [X] Character selection
-    - [ ] Character movement
-        - [X] Character movemement overlay
-            - [X] BFS calculation
-            - [X] BFS ignores occupied tiles
-            - [X] Variable movement costs
-            - [ ] BFS for variable dimension maps
-        - [ ] Path generation
-        - [ ] Path following
     - [ ] Melee attacks
     - [ ] Ranged attacks
-    - [ ] Prematurely end character activation phase
+        - [ ] Are there bullets in clip?
+        - [ ] Is target in range?
+        - [ ] Is target in LoS?
+        - [ ] If there is a gun jam defect, determine gun jam
+        - [ ] Roll over proficiency to hit
+            - [ ] On crit miss, check 2d6 <= quality
+            - [ ] If quality fails give weapon one random defect:
+                - [ ] Clip size - 1
+                - [ ] Broken burst switch
+                - [ ] Gun jams 20% of time
+                - [ ] Doubled reload cost
+                - [ ] -20% to hit
+            - [ ] If there are more defects than floor(quality / 2), weapon explodes  
+        - [ ] Remaining armor = target armor - armor penetration
+        - [ ] Target hitpoints -= (ranged based damage - rem. armor)
+        - [ ] Damage based on range 
+    - [ ] Other actions
+         - [ ] Hunker down
+         - [ ] Aim shot
+         - [ ] Reload
+         - [ ] Burst switch
+    - [X] Card Activation Combos
+    - [X] Cards cannot activate Commander
+    - [X] Prematurely end character activation phase
+        - [ ] Reactivated cards get only one action
 - [ ] Card use effects
 - [ ] Victory + defeat conditions
 
 # UI:
-- [X] End turn button
-    - [ ] Disable end turn button in most phases
-- [ ] Flexbox-like behaviour and centering for the card hand (changes how selected_card works)
-- [ ] Card hand slide up or genie effect ???
+
+- [ ] Activated character Action Point Pips
+
+- [ ] End turn / phase button animations
+- [ ] Better ui feedback
 - [ ] Toggle buttons for command deck list and discard pile list
 - [ ] Command deck list UI
 - [ ] Discard deck list UI

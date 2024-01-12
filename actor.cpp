@@ -5,6 +5,9 @@ enum actor_type
     ACTOR_NO_ACTOR,
     ACTOR_TYPE_PLAYER_UNIT,
     ACTOR_TYPE_ENEMY_UNIT,
+    ACTOR_TYPE_TRAP,
+    ACTOR_TYPE_TERMINAL,
+    ACTOR_TYPE_BARRIER
 };
 
 struct actor_t
